@@ -9,7 +9,7 @@
    COLOR: PICO-8 16-colour palette on deep navy; saturated red / yellow / blue
           appear only in small accents (stripe trim, wordmark, buttons),
           like the paint on a jeepney body against its dark undercarriage
-   TEXTURE: CRT scanlines + twinkling stars (pixel/screen world) against a
+   TEXTURE: CRT scanlines + a pixel-art dusk street scene behind the page (peach sky, teal shopfronts, power lines, a jeepney; stars are the fallback) (pixel/screen world) against a
             brushed-chrome gradient (metal world of the jeepney)
    SHAPE/FORM: hard square blocks; hard offset shadows give depth with no blur;
                chrome gradient suggests rounded metal on flat blocks
@@ -25,7 +25,7 @@
             only filled plate, so it is the bar's single point of emphasis.
             Story cards carry a mini "route" sign (e.g. origin to destination).
    RHYTHM: the repeating red-yellow-blue stripe band (header, footer, banner),
-           repeated cards, stepped blink/bob animations (steps())
+           repeated cards, the PLAY page's 4x4 grid of identical cards with stripe-pattern backs, stepped blink/bob animations (steps())
    EMPHASIS: the painted-sign wordmark (Bungee, yellow, black outline, red drop
              shadow) is the loudest element; yellow/pink buttons come second
    HARMONY: one palette, three fonts with fixed jobs:
@@ -69,6 +69,8 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:999;ba
   radial-gradient(var(--px) var(--px) at 60% 35%,var(--white) 99%,transparent);
   animation:twinkle 2s steps(2) infinite}
 @keyframes twinkle{50%{opacity:.35}}
+/* street-scene background (drawn in app.js): replaces the stars when it loads; the dark veil keeps text readable */
+.stars.city{animation:none;background-repeat:no-repeat;background-size:cover;background-position:center bottom;image-rendering:pixelated}
 h3,h4,.px{font-family:'Press Start 2P',monospace;font-weight:400;line-height:1.5;letter-spacing:0}
 h1,h2{font-family:var(--disp);font-weight:400;line-height:1.15;letter-spacing:.02em}
 h1{font-size:clamp(2rem,7vw,4rem)} h2{font-size:clamp(1.2rem,3vw,1.8rem)} h3{font-size:.85rem} h4{font-size:.7rem}
@@ -232,7 +234,10 @@ input[type=file]::file-selector-button{font-family:'Press Start 2P';font-size:.5
 
 /* ---------- editor ---------- */
 .edit{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:start}
-#cv{width:min(100%,384px);aspect-ratio:1;background:var(--white);border:var(--px) solid #000;box-shadow:8px 8px 0 #000;touch-action:none;cursor:crosshair;image-rendering:pixelated;display:block}
+.hexrow{display:flex;gap:8px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+.hexrow input[type=color]{width:48px;height:40px;padding:0;border:var(--px) solid #000;background:none;cursor:pointer;flex:none}
+.hexrow input[type=text]{width:9em;font-size:1.2rem;padding:8px}
+#cv{width:min(100%,512px);aspect-ratio:1;background:var(--white);border:var(--px) solid #000;box-shadow:8px 8px 0 #000;touch-action:none;cursor:crosshair;image-rendering:pixelated;display:block}
 .pal{display:grid;grid-template-columns:repeat(8,32px);gap:4px;margin:12px 0}
 .pal button{width:32px;height:32px;border:var(--px) solid #000;cursor:pointer}
 .pal button.on{outline:var(--px) solid var(--white);outline-offset:1px}
@@ -289,3 +294,15 @@ a:focus-visible,button:focus-visible,.card:focus-visible,.rank:focus-visible,sel
 .chk{display:flex;gap:12px;align-items:flex-start;margin:8px 0 18px}
 .chk input{width:28px;height:28px;padding:0;flex:none;accent-color:var(--yellow)}
 .chk label{font-family:'VT323',monospace;font-size:1.4rem;color:var(--white);margin:0}
+
+/* PLAY page: jeepney match-up. Stripe-pattern card backs repeat the trim (rhythm); a flipped card shows one 8x8 pixel icon (form/shape). */
+.mg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:480px;margin:0 auto 20px}
+.mc{aspect-ratio:1;padding:0;border:var(--px) solid #000;background:var(--trim);box-shadow:4px 4px 0 #000;cursor:pointer}
+.mc:hover:not(:disabled){transform:translate(-2px,-2px)}
+.mc.up,.mc.done{background:var(--panel2)}
+.mc.done{box-shadow:none;border-color:var(--green)}
+.mc img{width:100%;height:100%;padding:12%;image-rendering:pixelated;display:block}
+.mc:disabled{cursor:default}
+.gstat{text-align:center;margin-bottom:20px}
+.msg{display:flex;gap:16px;align-items:flex-start}.msg.new{border-color:var(--yellow)}
+.msg .dim{display:block}.msg p{white-space:pre-wrap;overflow-wrap:anywhere}

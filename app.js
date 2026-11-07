@@ -68,7 +68,7 @@ function linkURL(k, v) {
 }
 
 /* ---------- storage ---------- */
-let DB = { users: {}, posts: [], likes: {}, follows: {}, comments: {}, reports: [], session: null }; // everything here is loaded from Supabase by initBackend()
+let DB = { users: {}, posts: [], likes: {}, follows: {}, comments: {}, reports: [], msgs: [], session: null }; // everything here is loaded from Supabase by initBackend()
 try { localStorage.removeItem('kulay8'); } catch { } // clear data saved by the old browser-only demo
 
 /* ---------- Supabase backend ----------
@@ -99,7 +99,13 @@ async function loadReports() { // only the 5 moderators can read reports (row-le
   const un = {}; for (const [k, v] of Object.entries(DB.users)) un[v.id] = k;
   DB.reports = data.map(r => ({ id: r.id, post: r.post_id, u: un[r.user_id] || '?', why: r.reason, ts: Date.parse(r.created_at) }));
 }
-const refresh = async () => { await loadUsers(); await loadSession(); await loadPosts(); await loadSocial(); await loadReports(); };
+async function loadMessages() { // messages sent to me (row-level security: only the recipient can read them)
+  DB.msgs = []; if (!me()?.mod) return;
+  const { data, error } = await sb.from('messages').select('*').order('created_at', { ascending: false }); if (error) throw error;
+  const un = {}; for (const [k, v] of Object.entries(DB.users)) un[v.id] = k;
+  DB.msgs = data.map(r => ({ id: r.id, from: un[r.from_user] || '', body: r.body, read: r.is_read, ts: Date.parse(r.created_at) }));
+}
+const refresh = async () => { await loadUsers(); await loadSession(); await loadPosts(); await loadSocial(); await loadReports(); await loadMessages(); };
 async function initBackend() { if (!sb) return toast('COULD NOT REACH THE SERVER'); try { await refresh(); } catch { toast('COULD NOT REACH THE SERVER'); } render(); }
 
 /* seed team entries keep their role/team flag; a real profile with the same username fills in the rest */
@@ -140,8 +146,8 @@ const strip = (l, msg) => l.length ? `<div class="grid">${l.map(card).join('')}<
 function hud(route) {
   const u = me(), L = (h, t, k) => `<a class="nl ${route === k ? 'on' : ''}" href="#${h}"${route === k ? ' aria-current="page"' : ''}><small>RUTA</small>${t}</a>`; // route signboard
   $('#hud').innerHTML = `<nav><a class="logo" href="#/" aria-label="Kulay: Jeepney Stories, home"><i></i><b>KULAY<small>JEEPNEY STORIES</small></b></a><button class="btn sm ghost burger" data-act="menu" aria-label="Menu" aria-expanded="false">MENU</button>
-  <div class="menu" id="menu"><div class="routes">${L('/', 'HOME', 'home')}${L('/stories', 'STORIES', 'stories')}${L('/gallery', 'GALLERY', 'gallery')}${L('/people', 'PEOPLE', 'people')}${L('/about', 'ABOUT', 'about')}${L('/contact', 'CONTACT', 'contact')}</div><div class="acct">
-  ${u ? `<a class="btn sm pink" href="#/new/story">+ SHARE A STORY</a>${u.owner ? '<a class="btn sm ghost" href="#/mods">MODS</a>' : ''}${u.mod ? `<a class="btn sm blue" href="#/reports">REPORTS${new Set(DB.reports.map(r => r.post)).size ? ' (' + new Set(DB.reports.map(r => r.post)).size + ')' : ''}</a>` : ''}<a class="me" href="#/u/${esc(u.username)}"><img src="${avOf(u)}" alt=""><div>${esc(u.username)}<small>LV ${stats(u).lvl}</small></div></a><button class="btn sm ghost" data-act="logout">LOGOUT</button>`
+  <div class="menu" id="menu"><div class="routes">${L('/', 'HOME', 'home')}${L('/stories', 'STORIES', 'stories')}${L('/gallery', 'GALLERY', 'gallery')}${L('/people', 'PEOPLE', 'people')}${L('/play', 'PLAY', 'play')}${L('/about', 'ABOUT', 'about')}${L('/contact', 'CONTACT', 'contact')}</div><div class="acct">
+  ${u ? `<a class="btn sm pink" href="#/new/story">+ SHARE A STORY</a>${u.owner ? '<a class="btn sm ghost" href="#/mods">MODS</a>' : ''}${u.mod ? `<a class="btn sm blue" href="#/reports">REPORTS${new Set(DB.reports.map(r => r.post)).size ? ' (' + new Set(DB.reports.map(r => r.post)).size + ')' : ''}</a>` : ''}${u.mod ? `<a class="btn sm blue" href="#/inbox">INBOX${DB.msgs.filter(m => !m.read).length ? ' (' + DB.msgs.filter(m => !m.read).length + ')' : ''}</a>` : ''}<a class="me" href="#/u/${esc(u.username)}"><img src="${avOf(u)}" alt=""><div>${esc(u.username)}<small>LV ${stats(u).lvl}</small></div></a><button class="btn sm ghost" data-act="logout">LOGOUT</button>`
       : `<a class="btn sm ghost" href="#/login">LOGIN</a><a class="btn sm" href="#/signup">SIGN UP</a>`}</div></div></nav>`;
 }
 
@@ -211,10 +217,54 @@ function vAbout() {
 }
 
 function vContact() {
-  return `<section class="wrap"><div class="title"><h2>CONTACT</h2></div><div class="form panel"><form id="cf" novalidate>
-  <div class="two"><div class="fld"><label for="cn">NAME</label><input id="cn"><div class="err" id="e1"></div></div><div class="fld"><label for="ce">EMAIL</label><input id="ce" type="email"><div class="err" id="e2"></div></div></div>
-  <div class="fld"><label for="cm">MESSAGE</label><textarea id="cm" rows="5"></textarea><div class="err" id="e3"></div></div><button class="btn" type="submit">SEND MESSAGE</button></form>
-  <p id="cok" class="g" style="display:none">✔ MESSAGE SENT! Salamat!</p></div></section>`;
+  if (!me()) return needLogin();
+  const to = Object.entries(DB.users).filter(([k, v]) => (v.mod || v.owner) && k !== DB.session).sort(([, x], [, y]) => (y.owner - x.owner) || x.name.localeCompare(y.name));
+  return `<section class="wrap"><div class="title"><h2>CONTACT</h2></div><p class="intro">Choose who you want to write to. Only that person can read your message, and they will see your username.</p><div class="form panel"><form id="cf" novalidate>
+  <div class="fld"><label for="cto">SEND TO</label><select id="cto">${to.map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)} (@${esc(k)}) · ${v.owner ? 'OWNER' : 'MODERATOR'}</option>`).join('') || '<option value="">No one is available yet</option>'}</select></div>
+  <div class="fld"><label for="cm">MESSAGE</label><textarea id="cm" rows="6" maxlength="1000"></textarea><div class="help">10 to 1000 characters.</div><div class="err" id="e3" role="alert"></div></div><button class="btn" type="submit">SEND MESSAGE</button></form>
+  <div id="cok" style="display:none"><p class="g">✔ MESSAGE SENT! Salamat!</p><div class="btns"><button class="btn sm ghost" data-act="again">WRITE ANOTHER</button></div></div></div></section>`;
+}
+/* inbox: messages sent to the owner or a moderator from the Contact page */
+function vInbox() {
+  if (!me()?.mod) return `<section class="wrap"><p class="empty px">MODERATORS ONLY</p></section>`;
+  const rows = DB.msgs.map(m => `<div class="panel msg ${m.read ? '' : 'new'}"><div style="flex:1;min-width:0"><p class="y">${m.from ? `<a href="#/u/${esc(m.from)}">@${esc(m.from)}</a>` : 'Deleted account'}${m.read ? '' : ' · NEW'}</p><span class="dim">${esc(new Date(m.ts).toLocaleString())}</span><p>${esc(m.body)}</p></div>
+    <div class="rk">${m.read ? '' : `<button class="btn sm" data-act="mread" data-id="${esc(m.id)}">MARK READ</button>`}<button class="btn sm red" data-act="mdel" data-id="${esc(m.id)}">DELETE</button></div></div>`).join('');
+  return `<section class="wrap"><div class="title"><h2>INBOX</h2></div><p class="intro">Messages sent to you from the Contact page. Only you can see them.</p>${rows || '<p class="empty px">NO MESSAGES</p>'}</section>`;
+}
+
+/* PLAY page: jeepney match-up (memory game). Eight 8x8 pixel icons drawn from the jeepney, two of each. Best score is kept only in this browser. */
+const ICONS = [['SIGNBOARD', ['kkkkkkkk', 'kyyyyyyk', 'kykyykyk', 'kyyyyyyk', 'kkkkkkkk', '...gg...', '...gg...', '..gggg..']],
+  ['WHEEL', ['..kkkk..', '.kggggk.', 'kggkkggk', 'kgkwwkgk', 'kgkwwkgk', 'kggkkggk', '.kggggk.', '..kkkk..']],
+  ['HEADLIGHT', ['........', '..kkkk..', '.kyyyyk.', 'kywwwwyk', 'kywwwwyk', '.kyyyyk.', '..kkkk..', '........']],
+  ['CHROME STAR', ['...yy...', '...yy...', 'yyyyyyyy', '.yyyyyy.', '..yyyy..', '.yyyyyy.', '.yy..yy.', 'yy....yy']],
+  ['STRIPES', ['rrrrrrrr', 'rrrrrrrr', 'yyyyyyyy', 'yyyyyyyy', 'bbbbbbbb', 'bbbbbbbb', 'rrrrrrrr', 'rrrrrrrr']],
+  ['WINDOW', ['kkkkkkkk', 'kbbbbwbk', 'kbbbwbbk', 'kbbwbbbk', 'kbbbbbbk', 'kbbbbbbk', 'kkkkkkkk', '........']],
+  ['COIN', ['..kkkk..', '.kyyyyk.', 'kyyooyyk', 'kyoyyyyk', 'kyoyyyyk', 'kyyooyyk', '.kyyyyk.', '..kkkk..']],
+  ['JEEPNEY', ['........', '.kkkkkk.', 'kyyyyyyk', 'kybyybyk', 'kyyyyyyk', 'krrrrrrk', '.kwkkwk.', '..k..k..']]];
+const ICOLOR = { k: '#000', r: '#ff004d', y: '#ffec27', b: '#29adff', w: '#fff1e8', g: '#83769c', o: '#ffa300' };
+const iconURL = rows => { const c = document.createElement('canvas'); c.width = c.height = 8; const x = c.getContext('2d'); rows.forEach((r, j) => [...r].forEach((ch, i) => { if (ICOLOR[ch]) { x.fillStyle = ICOLOR[ch]; x.fillRect(i, j, 1, 1); } })); return c.toDataURL('image/png'); };
+let ICONURLS = null, GM = null;
+const bestMoves = () => { try { return +localStorage.getItem('kulay-best') || 0; } catch { return 0; } };
+function newGame() { const d = [...ICONS.keys(), ...ICONS.keys()]; for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; } GM = { deck: d, up: [], done: new Set(), moves: 0, lock: false, msg: 'FIND THE PAIRS' }; }
+function gameBoard() {
+  ICONURLS ||= ICONS.map(i => iconURL(i[1]));
+  return GM.deck.map((k, i) => { const open = GM.up.includes(i) || GM.done.has(i);
+    return `<button class="mc ${GM.done.has(i) ? 'done' : GM.up.includes(i) ? 'up' : ''}" data-act="flip" data-i="${i}" ${open ? 'disabled' : ''} aria-label="${open ? ICONS[k][0] : 'Card ' + (i + 1) + ', face down'}">${open ? `<img src="${ICONURLS[k]}" alt="">` : ''}</button>`; }).join('');
+}
+function gameStat() { const b = bestMoves(); return GM.done.size === 16 ? `<p class="g px">★ YOU MATCHED THEM ALL IN ${GM.moves} MOVES ★</p><div class="btns" style="justify-content:center"><button class="btn" data-act="newgame">PLAY AGAIN</button></div>` : `<p class="y px">${esc(GM.msg)}</p><p class="dim">MOVES: ${GM.moves}${b ? ' · BEST: ' + b : ''}</p>`; }
+function paintGame() { if ($('#gboard')) { $('#gboard').innerHTML = gameBoard(); $('#gstat').innerHTML = gameStat(); } }
+function flipCard(i) {
+  const g = GM; if (!g || g.lock || g.up.includes(i) || g.done.has(i)) return; g.up.push(i);
+  if (g.up.length === 2) { g.moves++; const [a, b] = g.up;
+    if (g.deck[a] === g.deck[b]) { g.msg = 'MATCH: ' + ICONS[g.deck[a]][0]; g.done.add(a); g.done.add(b); g.up = [];
+      if (g.done.size === 16) { const best = bestMoves(); if (!best || g.moves < best) try { localStorage.setItem('kulay-best', g.moves); } catch { } } }
+    else { g.msg = 'NOT A MATCH'; g.lock = true; setTimeout(() => { g.up = []; g.lock = false; paintGame(); }, 900); } }
+  paintGame();
+}
+function vPlay() {
+  newGame();
+  return `<section class="wrap"><div class="title"><h2>PLAY</h2></div><p class="intro">JEEPNEY MATCH-UP: flip two cards at a time and find the matching pairs. Every icon is a part of the jeepney's look.</p>
+  <div class="gstat" id="gstat">${gameStat()}</div><div class="mg" id="gboard">${gameBoard()}</div></section>`;
 }
 
 function vAuth(mode) {
@@ -297,8 +347,9 @@ function vNew(t) {
   <div class="panel">${NP.mode === 'draw' ? `<div class="edit"><div><canvas id="cv" aria-label="Pixel drawing canvas"></canvas></div><div>
    <div class="tool"><button class="btn sm" data-act="tool" data-t="pen" id="t-pen">✏ PEN</button><button class="btn sm ghost" data-act="tool" data-t="erase" id="t-erase">⌫ ERASE</button><button class="btn sm ghost" data-act="tool" data-t="fill" id="t-fill">🪣 FILL</button></div>
    <div class="pal" id="pal">${PAL.map((c, i) => `<button style="background:${c}" data-act="color" data-c="${c}" aria-label="Color ${c}" class="${i === 8 ? 'on' : ''}"></button>`).join('')}</div>
+   <div class="hexrow"><input type="color" id="cp" value="#ff004d" aria-label="Pick any colour"><input type="text" id="hx" value="#ff004d" maxlength="7" spellcheck="false" aria-label="Hex colour code, for example #ff8800"><span class="help">ANY COLOUR</span></div>
    <div class="tool"><button class="btn sm ghost" data-act="undo">↶ UNDO</button><button class="btn sm red" data-act="clear">CLEAR</button>
-   <select id="gs" aria-label="Grid size" style="width:auto;font-size:1.2rem;padding:8px"><option value="16">16×16</option><option value="32" selected>32×32</option><option value="48">48×48</option></select></div>
+   <select id="gs" aria-label="Grid size" style="width:auto;font-size:1.2rem;padding:8px"><option value="16">16×16</option><option value="32" selected>32×32</option><option value="48">48×48</option><option value="64">64×64</option></select></div>
    <p class="help">Tip: use FILL to change the background colour.</p></div></div>`
       : `<div class="fld"><label for="fi">CHOOSE AN IMAGE</label><input id="fi" type="file" accept="image/*"><div class="help">PNG, JPG or GIF. Large images are shrunk to fit.</div>${NP.img ? `<img class="pv" src="${NP.img}" alt="Preview of your upload">` : ''}</div>`}
   <div class="notice">⚠ Please do not post identifiable faces or license plates without permission. Crop or blur them first.</div></div>
@@ -320,7 +371,7 @@ function vNew(t) {
 function initEditor() {
   const cv = $('#cv'); if (!cv) return;
   const N = NP.n; ED = ED && ED.n === N ? ED : { n: N, g: Array.from({ length: N * N }, () => '#fff1e8'), color: '#ff004d', tool: 'pen', hist: [] };
-  const cell = Math.floor(384 / N); cv.width = cv.height = N * cell; const x = cv.getContext('2d');
+  const cell = Math.floor(512 / N); cv.width = cv.height = N * cell; const x = cv.getContext('2d');
   const draw = () => { ED.g.forEach((c, i) => { x.fillStyle = c; x.fillRect((i % N) * cell, Math.floor(i / N) * cell, cell, cell); }); };
   draw(); setTool(ED.tool); $('#gs').value = N;
   const pos = e => { const r = cv.getBoundingClientRect(); return [Math.min(N - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * N))), Math.min(N - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * N)))]; };
@@ -331,6 +382,10 @@ function initEditor() {
   cv.onpointermove = e => { if (down) { const [a, b] = pos(e); put(a, b); } };
   cv.onpointerup = cv.onpointercancel = () => { down = false; };
   ED.redraw = draw;
+  const cp = $('#cp'), hx = $('#hx'); cp.value = ED.color; hx.value = ED.color;
+  const own = c => { ED.color = c; if (ED.tool === 'erase') setTool('pen'); document.querySelectorAll('#pal button').forEach(b => b.classList.toggle('on', b.dataset.c === c)); };
+  cp.oninput = () => { hx.value = cp.value; own(cp.value); };
+  hx.oninput = () => { let s = hx.value.trim().replace(/^#?/, '#'); if (/^#[0-9a-f]{3}$/i.test(s)) s = '#' + [...s.slice(1)].map(ch => ch + ch).join(''); hx.classList.toggle('bad', !/^#[0-9a-f]{6}$/i.test(s)); if (/^#[0-9a-f]{6}$/i.test(s)) { s = s.toLowerCase(); cp.value = s; own(s); } };
 }
 function setTool(t) { if (!ED) return; ED.tool = t; ['pen', 'erase', 'fill'].forEach(k => { const b = $('#t-' + k); if (b) b.className = 'btn sm ' + (k === t ? '' : 'ghost'); }); }
 function editorPNG() {
@@ -371,10 +426,11 @@ function render() {
   closeModal(); const h = location.hash.slice(1) || '/', [, r, a] = h.split('/'); let route = r || 'home', html;
   if ((route === 'gallery' || route === 'stories') && G.kind !== route) G = { kind: route, cat: 'All', q: '', sort: 'top' }; // reset filters when switching tabs
   if (r === 'u') { route = 'u'; html = vProfile(decodeURIComponent(a || '')); }
-  else html = ({ home: vHome, gallery: () => vList('gallery'), stories: () => vList('stories'), about: vAbout, contact: vContact, login: () => vAuth('login'), signup: () => vAuth('signup'), edit: vEdit, people: vPeople, reports: vReports, mods: vMods, new: () => vNew(a) })[route]?.() ?? vHome();
+  else html = ({ home: vHome, gallery: () => vList('gallery'), stories: () => vList('stories'), about: vAbout, contact: vContact, login: () => vAuth('login'), signup: () => vAuth('signup'), edit: vEdit, people: vPeople, reports: vReports, mods: vMods, inbox: vInbox, play: vPlay, new: () => vNew(a) })[route]?.() ?? vHome();
   if (route !== 'edit') EP = null;
   hud(route); $('#app').innerHTML = html; window.scrollTo(0, 0);
   if (route === 'gallery' || route === 'stories') drawList(); if (route === 'people') drawPeople(); if (route === 'new') initEditor();
+  if (route === 'inbox' && me()?.mod) loadMessages().then(() => { if (location.hash === '#/inbox') { $('#app').innerHTML = vInbox(); hud('inbox'); } }).catch(() => { }); // pick up new messages when the page opens
   if (route === 'reports' && me()?.mod && !render.busy) { render.busy = true; loadReports().then(() => { if (location.hash === '#/reports') { $('#app').innerHTML = vReports(); hud('reports'); } }).catch(() => { }).finally(() => { render.busy = false; }); } // pick up new reports when the page opens
 }
 window.addEventListener('hashchange', render);
@@ -388,6 +444,11 @@ document.addEventListener('click', async e => {
   else if (a === 'like') { e.stopPropagation(); if (!DB.session) { toast('LOGIN TO LIKE'); return; }
     const l = DB.likes[DB.session] ||= [], on = !l.includes(d.id), toggle = () => { const i = l.indexOf(d.id); i >= 0 ? l.splice(i, 1) : l.push(d.id); paintLike(d.id); }, row = { post_id: d.id, user_id: DB.users[DB.session].id };
     toggle(); const { error } = on ? await sb.from('likes').insert(row) : await sb.from('likes').delete().match(row); if (error) { toggle(); toast('COULD NOT SAVE. TRY AGAIN'); } }
+  else if (a === 'flip') flipCard(+d.i);
+  else if (a === 'newgame') { newGame(); paintGame(); }
+  else if (a === 'again') render();
+  else if (a === 'mread') { const { error } = await sb.from('messages').update({ is_read: true }).eq('id', d.id); if (error) return toast('COULD NOT SAVE'); DB.msgs.find(m => m.id === d.id).read = true; $('#app').innerHTML = vInbox(); hud('inbox'); }
+  else if (a === 'mdel') { if (!confirm('Delete this message?')) return; const { error } = await sb.from('messages').delete().eq('id', d.id); if (error) return toast('COULD NOT DELETE'); DB.msgs = DB.msgs.filter(m => m.id !== d.id); $('#app').innerHTML = vInbox(); hud('inbox'); }
   else if (a === 'open') openPost(d.id);
   else if (a === 'close') closeModal();
   else if (a === 'profile') { go('/u/' + d.u); closeModal(); }
@@ -414,7 +475,7 @@ document.addEventListener('click', async e => {
   else if (a === 'rbn') { EP.bn = Math.floor(Math.random() * 1e6); $('#pb').src = scene(EP.bn); }
   else if (a === 'mode') { NP.mode = d.m; ED = ED; render(); }
   else if (a === 'tool') setTool(d.t);
-  else if (a === 'color') { ED.color = d.c; if (ED.tool === 'erase') setTool('pen'); document.querySelectorAll('#pal button').forEach(b => b.classList.toggle('on', b === t)); }
+  else if (a === 'color') { ED.color = d.c; $('#cp').value = d.c; $('#hx').value = d.c; if (ED.tool === 'erase') setTool('pen'); document.querySelectorAll('#pal button').forEach(b => b.classList.toggle('on', b === t)); }
   else if (a === 'undo') { if (ED.hist.length) { ED.g = ED.hist.pop(); ED.redraw(); } }
   else if (a === 'clear') { if (confirm('Clear the canvas?')) { ED.hist.push(ED.g.slice()); ED.g = ED.g.map(() => '#fff1e8'); ED.redraw(); } }
 });
@@ -459,9 +520,13 @@ document.addEventListener('submit', async e => {
     } catch { er.textContent = 'Something went wrong. Check your connection and try again.'; }
     finally { btn.disabled = false; }
   } else if (id === 'cf') {
-    let ok = true; const s = (i, m) => { $('#e' + i).textContent = m; if (m) ok = false; };
-    s(1, $('#cn').value.trim().length < 2 ? 'Enter your name.' : ''); s(2, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('#ce').value) ? '' : 'Enter a valid email.'); s(3, $('#cm').value.trim().length < 10 ? 'At least 10 characters.' : '');
-    if (ok) { e.target.style.display = 'none'; $('#cok').style.display = 'block'; }
+    const er = $('#e3'), to = DB.users[$('#cto').value], body = $('#cm').value.trim(), btn = e.target.querySelector('button[type=submit]'); er.textContent = '';
+    if (!DB.session) return er.textContent = 'Please log in first.';
+    if (!to) return er.textContent = 'Choose who to write to.';
+    if (body.length < 10) return er.textContent = 'At least 10 characters.';
+    btn.disabled = true; const { error } = await sb.from('messages').insert({ from_user: DB.users[DB.session].id, to_user: to.id, body }); btn.disabled = false;
+    if (error) return er.textContent = 'Could not send. Check your connection and try again.';
+    e.target.style.display = 'none'; $('#cok').style.display = 'block';
   } else if (id === 'pf') {
     const u = DB.users[DB.session], row = { name: $('#pn').value.trim() || u.name, bio: $('#pbio').value.trim(), av: EP.av, bn: EP.bn, links: {} };
     Object.keys(SOCIAL).forEach(k => { const v = $('#s-' + k).value.trim(); if (v) row.links[k] = v; });
@@ -502,4 +567,29 @@ document.addEventListener('submit', async e => {
     (DB.comments[pid] ||= []).push({ id: data.id, u: DB.session, t: data.text }); openPost(pid);
   }
 });
+/* ---------- background: an original pixel-art street scene (warm dusk, shopfronts, power lines, a jeepney), drawn in code at 192x108 and scaled up.
+   It is inspired by a colour reference from the group, not copied from it. A dark veil keeps the text readable. ---------- */
+function drawCity() {
+  const W = 192, H = 108, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  const R = (col, X, Y, w, h) => { x.fillStyle = col; x.fillRect(X, Y, w, h); };
+  ['#ffccaa', '#ffb98f', '#ffa670', '#ff9262', '#ee7c5c', '#cf6560', '#a8506a'].forEach((col, i) => R(col, 0, i * 8, W, 8)); // sky bands
+  const far = [[0, 30, 26, '#2f5f66'], [26, 22, 30, '#3b7a78'], [56, 34, 22, '#2f5f66'], [78, 26, 34, '#3b7a78'], [112, 36, 24, '#2f5f66'], [136, 24, 32, '#3b7a78'], [168, 32, 24, '#2f5f66']]; // far buildings: x, height, width, colour
+  far.forEach(([bx, h, w, col]) => { const top = 78 - h; R('#ab5236', bx - 1, top - 4, w + 2, 4); R('#7e2553', bx - 1, top - 1, w + 2, 1); R(col, bx, top, w, h);
+    for (let wy = top + 4; wy < 72; wy += 8) for (let wx = bx + 3; wx < bx + w - 4; wx += 7) R((wx * 7 + wy * 3) % 5 === 0 ? '#ffec27' : '#1d2b53', wx, wy, 3, 4); });
+  R('#2f7d6f', 0, 44, 62, 36); R('#1d2b53', 0, 44, 62, 2); // near shop, left
+  ['#ff004d', '#ffec27', '#29adff'].forEach((col, i) => { for (let k = 0; k < 62; k += 6) R(k % 12 === 0 ? col : '#fff1e8', k, 52 + i * 3, 6, 3); }); // striped awning (the trim colours)
+  R('#1d2b53', 6, 64, 20, 16); R('#ffec27', 8, 66, 16, 12); R('#1d2b53', 36, 62, 18, 18); R('#29adff', 38, 64, 14, 10);
+  R('#c2c3c7', 0, 80, W, 4); R('#83769c', 0, 84, W, 1); R('#5f574f', 0, 85, W, 23); // pavement and road
+  for (let k = 4; k < W; k += 24) R('#c2c3c7', k, 98, 12, 1); // lane dashes
+  R('#008751', 104, 52, 3, 28); R('#fff1e8', 102, 46, 7, 6); R('#c2c3c7', 102, 52, 7, 1); R('#ff004d', 109, 56, 5, 3); // lamp post, globe, small red sign
+  x.fillStyle = '#000'; [[0, 14, 70, 20], [70, 20, 192, 12], [0, 24, 96, 30], [96, 30, 192, 20]].forEach(([x0, y0, x1, y1]) => { for (let k = x0; k < x1; k++) x.fillRect(k, Math.round(y0 + (y1 - y0) * (k - x0) / (x1 - x0) + Math.sin((k - x0) / (x1 - x0) * Math.PI) * 4), 1, 1); }); // power lines
+  R('#000', 86, 8, 2, 72); R('#000', 80, 12, 14, 1); R('#000', 80, 18, 14, 1); // pole
+  const J = 118, T = 62; // jeepney, front facing left
+  R('#000', J - 1, T + 4, 56, 21); R('#fff1e8', J, T + 5, 54, 14); R('#ff004d', J + 6, T, 14, 3); R('#ffec27', J + 20, T, 14, 3); R('#29adff', J + 34, T, 14, 3); R('#fff1e8', J + 4, T + 3, 48, 3); // body and striped roof
+  R('#29adff', J + 4, T + 7, 8, 6); for (let k = 0; k < 4; k++) R('#29adff', J + 16 + k * 9, T + 7, 7, 6); R('#ffa300', J + 2, T + 15, 52, 3); R('#c2c3c7', J, T + 12, 3, 6); R('#ffec27', J, T + 10, 2, 2); // windows, orange stripe, grille, headlight
+  [J + 8, J + 40].forEach(wx => { R('#000', wx, T + 17, 11, 11); R('#5f574f', wx + 3, T + 20, 5, 5); R('#c2c3c7', wx + 4, T + 21, 3, 3); }); // wheels
+  return c.toDataURL('image/png');
+}
+try { const bg = $('.stars'); bg.classList.add('city'); bg.style.backgroundImage = 'linear-gradient(rgba(13,15,36,.7),rgba(13,15,36,.7)),url(' + drawCity() + ')'; } catch { } // if this fails the old starry background stays
+
 render(); initBackend();

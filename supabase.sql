@@ -168,3 +168,27 @@ $$ declare uid uuid; begin
 end $$;
 revoke execute on function delete_account(text) from public, anon;
 grant execute on function delete_account(text) to authenticated;
+
+-- ====================================================================
+-- UPDATE 4 (run this block ONCE): the Contact page. Logged-in visitors send a message to the owner or a moderator.
+-- Only the person it was sent to can read, mark read, or delete it. Senders cannot read other people's messages.
+-- ====================================================================
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  from_user uuid not null references profiles(id) on delete cascade,
+  to_user uuid not null references profiles(id) on delete cascade,
+  body text not null check (char_length(body) between 10 and 1000),
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table messages enable row level security;
+
+-- send: as yourself, and only to the owner or a moderator
+create policy "messages insert" on messages for insert
+  with check (auth.uid() = from_user and exists (select 1 from profiles p where p.id = to_user and (p.is_mod or p.is_owner)));
+-- read / mark read / delete: only the recipient
+create policy "messages read"   on messages for select using (auth.uid() = to_user);
+create policy "messages update" on messages for update using (auth.uid() = to_user) with check (auth.uid() = to_user);
+create policy "messages delete" on messages for delete using (auth.uid() = to_user);
+revoke update on messages from authenticated, anon;
+grant update (is_read) on messages to authenticated;
