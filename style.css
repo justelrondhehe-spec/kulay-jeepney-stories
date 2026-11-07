@@ -164,7 +164,7 @@ section{padding:48px 0}
 .credit h4{color:var(--yellow);margin-bottom:8px}
 .credit a{color:var(--blue);text-decoration:underline}
 .tag{display:inline-block;font-family:'Press Start 2P';font-size:.45rem;background:var(--navy);padding:6px;border:2px solid #000;color:var(--blue)}
-.heart{font-family:'Press Start 2P';font-size:.6rem;background:none;border:0;color:var(--grey);cursor:pointer;padding:6px}
+.heart{white-space:nowrap;flex:none;font-family:'Press Start 2P';font-size:.6rem;background:none;border:0;color:var(--grey);cursor:pointer;padding:6px}
 .heart.on{color:var(--red)} .heart:hover{color:var(--pink)}
 
 /* filters */

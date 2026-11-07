@@ -57,7 +57,7 @@ function kaleido(seed) { // 4-fold symmetric tile
 const artOf = (kind, seed) => kind === 'scene' ? scene(seed) : kind === 'kaleido' ? kaleido(seed) : sprite(seed);
 
 /* ---------- categories. All content (accounts, stories, artworks) comes from Supabase; nothing is pre-filled. ---------- */
-const STORY_CATS = ['Commuter', 'Driver', 'Our commute', 'Family'];
+const STORY_CATS = ['Commuter', 'Driver', 'Passerby'];
 const CATS = ['Pixel jeepney', 'Digital painting', 'Sketch', 'Field-trip photo', 'Other'];
 const SOCIAL = { instagram: ['IG', '#ff77a8', 'https://instagram.com/'], x: ['X', '#c2c3c7', 'https://x.com/'], facebook: ['FB', '#29adff', 'https://facebook.com/'], tiktok: ['TT', '#00e436', 'https://tiktok.com/@'], youtube: ['YT', '#ff004d', 'https://youtube.com/@'], behance: ['BE', '#29adff', 'https://behance.net/'], artstation: ['AS', '#ffa300', 'https://artstation.com/'], website: ['WEB', '#ffec27', ''] };
 function linkURL(k, v) {
